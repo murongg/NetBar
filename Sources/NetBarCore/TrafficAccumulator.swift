@@ -39,6 +39,8 @@ public struct TrafficAccumulator: Sendable {
         let classifier = RouteClassifier(proxySettings: proxySettings)
         var nextCounters: [ConnectionKey: TrafficCounter] = [:]
         var nextProcessCounters: [ProcessIdentity: TrafficCounter] = [:]
+        var reliableProcessCounters: Set<ProcessIdentity> = []
+        var processDeltasByProcess: [ProcessIdentity: TrafficCounter] = [:]
         var connectionDeltaTotalsByProcess: [ProcessIdentity: TrafficCounter] = [:]
         var unmatchedConnectionCountersByProcess: [ProcessIdentity: TrafficCounter] = [:]
         var routeHintsByProcess: [ProcessIdentity: [TrafficRoute: TrafficCounter]] = [:]
@@ -46,7 +48,18 @@ public struct TrafficAccumulator: Sendable {
 
         for process in snapshot.processes {
             nextProcessCounters[process.process] = process.counter
+            guard process.counter.total > 0 else {
+                continue
+            }
+
+            reliableProcessCounters.insert(process.process)
+            if let previous = previousProcessCounters[process.process],
+               let processDelta = process.counter.delta(from: previous) {
+                processDeltasByProcess[process.process] = processDelta
+            }
         }
+
+        var remainingConnectionBudgetByProcess = processDeltasByProcess
 
         for connection in snapshot.connections where connection.isMeasurable {
             let key = ConnectionKey(connection)
@@ -64,8 +77,26 @@ public struct TrafficAccumulator: Sendable {
                 continue
             }
 
+            let boundedDelta: TrafficCounter
+            if reliableProcessCounters.contains(connection.process) {
+                guard var remaining = remainingConnectionBudgetByProcess[connection.process],
+                      remaining.total > 0 else {
+                    continue
+                }
+
+                boundedDelta = counterDelta.capped(to: remaining)
+                guard boundedDelta.total > 0 else {
+                    continue
+                }
+
+                remaining.subtract(boundedDelta)
+                remainingConnectionBudgetByProcess[connection.process] = remaining
+            } else {
+                boundedDelta = counterDelta
+            }
+
             var connectionDeltaTotal = connectionDeltaTotalsByProcess[connection.process] ?? TrafficCounter()
-            connectionDeltaTotal.add(counterDelta)
+            connectionDeltaTotal.add(boundedDelta)
             connectionDeltaTotalsByProcess[connection.process] = connectionDeltaTotal
 
             deltas.append(
@@ -74,16 +105,15 @@ public struct TrafficAccumulator: Sendable {
                     appName: connection.process.appName,
                     pid: connection.process.pid,
                     route: classifier.classify(connection),
-                    bytesIn: counterDelta.bytesIn,
-                    bytesOut: counterDelta.bytesOut
+                    bytesIn: boundedDelta.bytesIn,
+                    bytesOut: boundedDelta.bytesOut
                 )
             )
         }
 
         for process in snapshot.processes {
             guard process.counter.total > 0,
-                  let previous = previousProcessCounters[process.process],
-                  let processDelta = process.counter.delta(from: previous),
+                  let processDelta = processDeltasByProcess[process.process],
                   processDelta.total > 0 else {
                 continue
             }
@@ -201,5 +231,19 @@ private struct ConnectionKey: Hashable, Sendable {
         self.protocolName = connection.protocolName
         self.local = connection.local.rawValue
         self.remote = connection.remote.rawValue
+    }
+}
+
+private extension TrafficCounter {
+    func capped(to limit: TrafficCounter) -> TrafficCounter {
+        TrafficCounter(
+            bytesIn: min(bytesIn, limit.bytesIn),
+            bytesOut: min(bytesOut, limit.bytesOut)
+        )
+    }
+
+    mutating func subtract(_ other: TrafficCounter) {
+        bytesIn -= min(bytesIn, other.bytesIn)
+        bytesOut -= min(bytesOut, other.bytesOut)
     }
 }

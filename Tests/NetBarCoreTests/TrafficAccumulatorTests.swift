@@ -61,6 +61,17 @@ final class TrafficAccumulatorTests: XCTestCase {
         XCTAssertTrue(deltas.isEmpty)
     }
 
+    func testSuppressesConnectionDeltaWhenProcessCounterIsUnchanged() throws {
+        let proxySettings = ProxySettings(ports: [])
+        let parser = NettopCSVParser()
+        var accumulator = TrafficAccumulator()
+
+        _ = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 166_274_541, processOut: 537_072, connectionIn: 69_926_611, connectionOut: 0, localPort: 50100), timestamp: Date(timeIntervalSince1970: 0)), proxySettings: proxySettings)
+        let deltas = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 166_274_541, processOut: 537_072, connectionIn: 139_853_222, connectionOut: 0, localPort: 50100), timestamp: Date(timeIntervalSince1970: 5)), proxySettings: proxySettings)
+
+        XCTAssertTrue(deltas.isEmpty)
+    }
+
     func testFallsBackToUnknownProcessDeltaWithoutConnections() throws {
         let proxySettings = ProxySettings(ports: [])
         let parser = NettopCSVParser()
