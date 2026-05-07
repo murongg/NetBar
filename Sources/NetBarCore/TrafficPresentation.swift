@@ -96,7 +96,7 @@ public enum TrafficPresentation {
         lineHeight: 10,
         spacing: 3,
         horizontalPadding: 2.5,
-        textColumnWidth: 48,
+        textColumnWidth: 52,
         minimumItemHeight: 22
     )
 

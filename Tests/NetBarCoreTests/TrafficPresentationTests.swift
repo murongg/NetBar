@@ -70,8 +70,8 @@ final class TrafficPresentationTests: XCTestCase {
         XCTAssertEqual(layout.textBlockHeight, 20)
         XCTAssertEqual(layout.contentHeight, 20)
         XCTAssertEqual(layout.minimumItemHeight, 22)
-        XCTAssertEqual(layout.textColumnWidth, 48)
-        XCTAssertEqual(layout.statusItemWidth, 78)
+        XCTAssertEqual(layout.textColumnWidth, 52)
+        XCTAssertEqual(layout.statusItemWidth, 82)
     }
 
     func testBuildsAppIconSearchNamesForHelperProcesses() {

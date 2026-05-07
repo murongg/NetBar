@@ -22,6 +22,7 @@ final class MenuBarController: NSObject {
     private let popover = NSPopover()
     private let model: MonitorModel
     private let dashboardController: DashboardViewController
+    private let statusRateView = StatusRateView()
     private let updateChecker = GitHubUpdateChecker(owner: "murongg", repository: "NetBar")
     private let releasesURL = URL(string: "https://github.com/murongg/NetBar/releases")!
 
@@ -64,15 +65,23 @@ final class MenuBarController: NSObject {
             return
         }
 
-        statusItem.length = 112
-        let image = NSImage(systemSymbolName: "arrow.up.arrow.down.circle", accessibilityDescription: "NetBar")
-        image?.isTemplate = true
-        button.image = image
-        button.imagePosition = .imageLeading
-        button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        statusItem.length = TrafficPresentation.statusBarRateLayout.statusItemWidth
+        button.image = nil
+        button.title = ""
+        button.attributedTitle = NSAttributedString()
         button.target = self
         button.action = #selector(togglePopover(_:))
         button.toolTip = "NetBar \(AppVersion.current.tagString)"
+
+        statusRateView.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(statusRateView)
+
+        NSLayoutConstraint.activate([
+            statusRateView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            statusRateView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            statusRateView.widthAnchor.constraint(equalToConstant: TrafficPresentation.statusBarRateLayout.statusItemWidth - 8),
+            statusRateView.heightAnchor.constraint(equalToConstant: TrafficPresentation.statusBarRateLayout.minimumItemHeight)
+        ])
     }
 
     private func configurePopover() {
@@ -99,8 +108,8 @@ final class MenuBarController: NSObject {
             return
         }
 
-        button.title = title
-        button.toolTip = "NetBar \(AppVersion.current.tagString)  \(title)"
+        statusRateView.title = title
+        button.toolTip = "NetBar \(AppVersion.current.tagString)  \(title.replacingOccurrences(of: "\n", with: "  "))"
         button.setAccessibilityLabel(button.toolTip)
     }
 
@@ -175,6 +184,92 @@ final class MenuBarController: NSObject {
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
             dashboardController.view.window?.makeKey()
         }
+    }
+}
+
+final class StatusRateView: NSView {
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let layout = TrafficPresentation.statusBarRateLayout
+
+    var title: String {
+        get { titleLabel.stringValue }
+        set {
+            titleLabel.attributedStringValue = StatusRateView.attributedTitle(newValue, lineHeight: CGFloat(layout.lineHeight))
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: CGFloat(layout.statusItemWidth - 8),
+            height: CGFloat(max(layout.minimumItemHeight, layout.contentHeight))
+        )
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    private func setup() {
+        wantsLayer = false
+
+        iconView.image = NSImage(systemSymbolName: "arrow.up.arrow.down.circle", accessibilityDescription: "NetBar")
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: CGFloat(layout.iconSize), weight: .semibold)
+        iconView.contentTintColor = .labelColor
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.isEditable = false
+        titleLabel.isBordered = false
+        titleLabel.drawsBackground = false
+        titleLabel.maximumNumberOfLines = 2
+        titleLabel.lineBreakMode = .byClipping
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(iconView)
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: CGFloat(layout.horizontalPadding)),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: CGFloat(layout.iconSize)),
+            iconView.heightAnchor.constraint(equalToConstant: CGFloat(layout.iconSize)),
+
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: CGFloat(layout.spacing)),
+            titleLabel.widthAnchor.constraint(equalToConstant: CGFloat(layout.textColumnWidth)),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -CGFloat(layout.horizontalPadding)),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.heightAnchor.constraint(equalToConstant: CGFloat(layout.textBlockHeight))
+        ])
+    }
+
+    private static func attributedTitle(_ title: String, lineHeight: CGFloat) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        paragraph.lineSpacing = 0
+
+        return NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9.4, weight: .semibold),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph,
+                .baselineOffset: -0.5
+            ]
+        )
     }
 }
 
@@ -1006,7 +1101,7 @@ final class MonitorModel {
             return "..."
         }
 
-        return TrafficPresentation.inlineStatusBarRateLabel(
+        return TrafficPresentation.statusBarRateLabel(
             downloadBytesPerSecond: lastDownloadBytesPerSecond,
             uploadBytesPerSecond: lastUploadBytesPerSecond
         )
