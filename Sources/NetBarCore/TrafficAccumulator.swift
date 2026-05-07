@@ -27,10 +27,12 @@ public struct RouteClassifier: Sendable {
 public struct TrafficAccumulator: Sendable {
     private var previousConnectionCounters: [ConnectionKey: TrafficCounter]
     private var previousProcessCounters: [ProcessIdentity: TrafficCounter]
+    private var previousUnmatchedConnectionCountersByProcess: [ProcessIdentity: TrafficCounter]
 
     public init() {
         self.previousConnectionCounters = [:]
         self.previousProcessCounters = [:]
+        self.previousUnmatchedConnectionCountersByProcess = [:]
     }
 
     public mutating func ingest(_ snapshot: NetworkSnapshot, proxySettings: ProxySettings) -> [TrafficDelta] {
@@ -38,6 +40,7 @@ public struct TrafficAccumulator: Sendable {
         var nextCounters: [ConnectionKey: TrafficCounter] = [:]
         var nextProcessCounters: [ProcessIdentity: TrafficCounter] = [:]
         var connectionDeltaTotalsByProcess: [ProcessIdentity: TrafficCounter] = [:]
+        var unmatchedConnectionCountersByProcess: [ProcessIdentity: TrafficCounter] = [:]
         var routeHintsByProcess: [ProcessIdentity: [TrafficRoute: TrafficCounter]] = [:]
         var deltas: [TrafficDelta] = []
 
@@ -52,8 +55,12 @@ public struct TrafficAccumulator: Sendable {
             add(connection.counter, to: classifier.classify(connection), for: connection.process, in: &routeHintsByProcess)
 
             guard let previous = previousConnectionCounters[key],
-                  let counterDelta = current.delta(from: previous),
-                  counterDelta.total > 0 else {
+                  let counterDelta = current.delta(from: previous) else {
+                add(current, for: connection.process, in: &unmatchedConnectionCountersByProcess)
+                continue
+            }
+
+            guard counterDelta.total > 0 else {
                 continue
             }
 
@@ -90,6 +97,15 @@ public struct TrafficAccumulator: Sendable {
                 continue
             }
 
+            if shouldSuppressRepeatedFallback(
+                fallback,
+                covered: covered,
+                currentUnmatched: unmatchedConnectionCountersByProcess[process.process],
+                previousUnmatched: previousUnmatchedConnectionCountersByProcess[process.process]
+            ) {
+                continue
+            }
+
             let route = dominantRoute(in: routeHintsByProcess[process.process] ?? [:])
             deltas.append(
                 TrafficDelta(
@@ -105,7 +121,18 @@ public struct TrafficAccumulator: Sendable {
 
         previousConnectionCounters = nextCounters
         previousProcessCounters = nextProcessCounters
+        previousUnmatchedConnectionCountersByProcess = unmatchedConnectionCountersByProcess
         return deltas
+    }
+
+    private func add(
+        _ counter: TrafficCounter,
+        for process: ProcessIdentity,
+        in countersByProcess: inout [ProcessIdentity: TrafficCounter]
+    ) {
+        var processCounter = countersByProcess[process] ?? TrafficCounter()
+        processCounter.add(counter)
+        countersByProcess[process] = processCounter
     }
 
     private func add(
@@ -119,6 +146,22 @@ public struct TrafficAccumulator: Sendable {
         routeCounter.add(counter)
         routes[route] = routeCounter
         routeHintsByProcess[process] = routes
+    }
+
+    private func shouldSuppressRepeatedFallback(
+        _ fallback: TrafficCounter,
+        covered: TrafficCounter,
+        currentUnmatched: TrafficCounter?,
+        previousUnmatched: TrafficCounter?
+    ) -> Bool {
+        guard covered.total == 0,
+              let currentUnmatched,
+              let previousUnmatched,
+              currentUnmatched.total > 0 else {
+            return false
+        }
+
+        return currentUnmatched == previousUnmatched && fallback == currentUnmatched
     }
 
     private func dominantRoute(in routeCounters: [TrafficRoute: TrafficCounter]) -> TrafficRoute {

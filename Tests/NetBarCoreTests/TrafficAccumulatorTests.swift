@@ -50,6 +50,17 @@ final class TrafficAccumulatorTests: XCTestCase {
         XCTAssertEqual(deltas.single?.bytesOut, 600)
     }
 
+    func testSuppressesRepeatedFallbackWhenConnectionKeyChangesButCounterIsUnchanged() throws {
+        let proxySettings = ProxySettings(ports: [])
+        let parser = NettopCSVParser()
+        var accumulator = TrafficAccumulator()
+
+        _ = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 69_000_000, processOut: 0, connectionIn: 69_000_000, connectionOut: 0, localPort: 50100), timestamp: Date(timeIntervalSince1970: 0)), proxySettings: proxySettings)
+        let deltas = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 138_000_000, processOut: 0, connectionIn: 69_000_000, connectionOut: 0, localPort: 60200), timestamp: Date(timeIntervalSince1970: 5)), proxySettings: proxySettings)
+
+        XCTAssertTrue(deltas.isEmpty)
+    }
+
     func testFallsBackToUnknownProcessDeltaWithoutConnections() throws {
         let proxySettings = ProxySettings(ports: [])
         let parser = NettopCSVParser()
@@ -74,10 +85,21 @@ final class TrafficAccumulatorTests: XCTestCase {
     }
 
     private static func processSample(pid: Int, processIn: UInt64, processOut: UInt64, localPort: Int) -> String {
+        processSample(
+            pid: pid,
+            processIn: processIn,
+            processOut: processOut,
+            connectionIn: processIn,
+            connectionOut: processOut,
+            localPort: localPort
+        )
+    }
+
+    private static func processSample(pid: Int, processIn: UInt64, processOut: UInt64, connectionIn: UInt64, connectionOut: UInt64, localPort: Int) -> String {
         """
         time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
         12:00:00.100000,Safari.\(pid),,,\(processIn),\(processOut),0,0,0,,,,,,,,,,,,
-        12:00:00.100001,tcp4 192.168.1.2:\(localPort)<->93.184.216.34:443,en0,Established,\(processIn),\(processOut),0,0,0,20.00 ms,131072,131072,BE,-,cubic,-,-,-,-,so,
+        12:00:00.100001,tcp4 192.168.1.2:\(localPort)<->93.184.216.34:443,en0,Established,\(connectionIn),\(connectionOut),0,0,0,20.00 ms,131072,131072,BE,-,cubic,-,-,-,-,so,
         """
     }
 
