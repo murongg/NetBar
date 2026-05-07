@@ -1,7 +1,7 @@
 import Foundation
 
 public struct AppVersion: Hashable, Comparable, Sendable {
-    public static let current = AppVersion("0.1.1")!
+    public static let current = AppVersion("0.1.2")!
 
     public let rawValue: String
 

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public protocol NetworkSnapshotCollecting {
@@ -10,16 +11,25 @@ public protocol CommandRunning: Sendable {
 
 public enum CommandRunnerError: Error, Equatable {
     case nonZeroExit(Int32, String)
+    case timedOut
     case unreadableOutput
 }
 
 public struct ProcessCommandRunner: CommandRunning {
-    public init() {}
+    private let timeout: TimeInterval
+
+    public init(timeout: TimeInterval = 5) {
+        self.timeout = timeout
+    }
 
     public func run(executablePath: String, arguments: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        let didExit = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            didExit.signal()
+        }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -27,7 +37,14 @@ public struct ProcessCommandRunner: CommandRunning {
         process.standardError = errorPipe
 
         try process.run()
-        process.waitUntilExit()
+        if didExit.wait(timeout: .now() + .milliseconds(Int(timeout * 1_000))) == .timedOut {
+            process.terminate()
+            if didExit.wait(timeout: .now() + .seconds(1)) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                didExit.wait()
+            }
+            throw CommandRunnerError.timedOut
+        }
 
         let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let error = errorPipe.fileHandleForReading.readDataToEndOfFile()
