@@ -130,6 +130,18 @@ public struct TrafficCounter: Codable, Equatable, Sendable {
     }
 }
 
+public struct TrafficRate: Equatable, Sendable {
+    public static let zero = TrafficRate(downloadBytesPerSecond: 0, uploadBytesPerSecond: 0)
+
+    public let downloadBytesPerSecond: Double
+    public let uploadBytesPerSecond: Double
+
+    public init(downloadBytesPerSecond: Double, uploadBytesPerSecond: Double) {
+        self.downloadBytesPerSecond = downloadBytesPerSecond
+        self.uploadBytesPerSecond = uploadBytesPerSecond
+    }
+}
+
 public struct ProcessMetric: Codable, Equatable, Sendable {
     public let process: ProcessIdentity
     public let counter: TrafficCounter

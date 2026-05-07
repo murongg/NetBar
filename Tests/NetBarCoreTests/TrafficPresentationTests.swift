@@ -38,6 +38,35 @@ final class TrafficPresentationTests: XCTestCase {
         XCTAssertEqual(dashboard.items[0].routes.map(\.detailLabel), ["Down 1.0 KB  Up 1.0 KB", "Down 2.0 KB  Up 0 B"])
     }
 
+    func testBuildsDashboardPresentationWithPerAppLiveRates() {
+        let summaries = [
+            AppTrafficSummary(
+                appName: "Safari",
+                routeTotals: [
+                    .direct: TrafficCounter(bytesIn: 3_072, bytesOut: 1_024)
+                ]
+            ),
+            AppTrafficSummary(
+                appName: "Code",
+                routeTotals: [
+                    .direct: TrafficCounter(bytesIn: 1_024, bytesOut: 512)
+                ]
+            )
+        ]
+
+        let dashboard = TrafficPresentation.dashboard(
+            summaries: summaries,
+            period: .day,
+            limit: 8,
+            liveRates: [
+                "Safari": TrafficRate(downloadBytesPerSecond: 2_048, uploadBytesPerSecond: 512)
+            ]
+        )
+
+        XCTAssertEqual(dashboard.items[0].liveRateLabel, "Now ↓ 2.0 KB/s  ↑ 512 B/s")
+        XCTAssertEqual(dashboard.items[1].liveRateLabel, "Now ↓ 0 B/s  ↑ 0 B/s")
+    }
+
     func testBuildsCompactRateLabelWithDownloadAndUpload() {
         let label = TrafficPresentation.rateLabel(downloadBytesPerSecond: 85_920, uploadBytesPerSecond: 12_288)
 

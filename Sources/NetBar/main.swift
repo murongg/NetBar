@@ -585,6 +585,10 @@ final class AppTrafficRowView: NSView {
         detailLabel.stringValue = item.detailLabel
         detailLabel.textColor = .secondaryLabelColor
 
+        let liveRateLabel = Label(style: .caption)
+        liveRateLabel.stringValue = item.liveRateLabel
+        liveRateLabel.textColor = .controlAccentColor
+
         let topLine = NSStackView(views: [nameLabel, NSView(), totalLabel])
         topLine.orientation = .horizontal
         topLine.alignment = .firstBaseline
@@ -598,10 +602,10 @@ final class AppTrafficRowView: NSView {
             chipStack.addArrangedSubview(RouteChipView(route: route))
         }
 
-        let body = NSStackView(views: [topLine, detailLabel, barView, chipStack])
+        let body = NSStackView(views: [topLine, detailLabel, liveRateLabel, barView, chipStack])
         body.orientation = .vertical
         body.alignment = .leading
-        body.spacing = 7
+        body.spacing = 6
 
         let iconView = AppIconView(image: icon)
         let content = NSStackView(views: [iconView, body])
@@ -613,7 +617,7 @@ final class AppTrafficRowView: NSView {
         addSubview(content)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 110),
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.topAnchor.constraint(equalTo: topAnchor),
@@ -621,6 +625,7 @@ final class AppTrafficRowView: NSView {
             body.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -62),
             topLine.widthAnchor.constraint(equalTo: body.widthAnchor),
             detailLabel.widthAnchor.constraint(equalTo: body.widthAnchor),
+            liveRateLabel.widthAnchor.constraint(equalTo: body.widthAnchor),
             barView.widthAnchor.constraint(equalTo: body.widthAnchor),
             barView.heightAnchor.constraint(equalToConstant: 6)
         ])
@@ -1016,6 +1021,7 @@ final class MonitorModel {
     private(set) var lastError: String?
     private(set) var lastDownloadBytesPerSecond: Double = 0
     private(set) var lastUploadBytesPerSecond: Double = 0
+    private(set) var liveAppRates: [String: TrafficRate] = [:]
 
     private let collector: NetworkSnapshotCollecting
     private let proxyProvider: ProxySettingsProviding
@@ -1033,7 +1039,7 @@ final class MonitorModel {
     }
 
     var dashboard: TrafficDashboardPresentation {
-        TrafficPresentation.dashboard(summaries: summaries, period: period)
+        TrafficPresentation.dashboard(summaries: summaries, period: period, liveRates: liveAppRates)
     }
 
     var storeFileURL: URL {
@@ -1093,6 +1099,7 @@ final class MonitorModel {
                 let elapsed = self.lastSampleDate.map { snapshot.timestamp.timeIntervalSince($0) } ?? self.sampleInterval
                 let downloadRate = elapsed > 0 ? Double(downloadBytes) / elapsed : 0
                 let uploadRate = elapsed > 0 ? Double(uploadBytes) / elapsed : 0
+                let liveAppRates = TrafficStatistics.liveRates(from: deltas, elapsed: elapsed)
                 self.lastSampleDate = snapshot.timestamp
 
                 let summaries = TrafficStatistics.aggregate(self.store.deltas, period: period, now: Date())
@@ -1102,6 +1109,7 @@ final class MonitorModel {
                     self.lastUpdated = snapshot.timestamp
                     self.lastDownloadBytesPerSecond = downloadRate
                     self.lastUploadBytesPerSecond = uploadRate
+                    self.liveAppRates = liveAppRates
                     self.summaries = summaries
                     self.onChange?()
                 }

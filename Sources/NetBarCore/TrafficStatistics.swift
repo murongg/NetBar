@@ -43,4 +43,24 @@ public enum TrafficStatistics {
             return $0.totalBytes > $1.totalBytes
         }
     }
+
+    public static func liveRates(from deltas: [TrafficDelta], elapsed: TimeInterval) -> [String: TrafficRate] {
+        guard elapsed > 0 else {
+            return [:]
+        }
+
+        var countersByApp: [String: TrafficCounter] = [:]
+        for delta in deltas {
+            var counter = countersByApp[delta.appName] ?? TrafficCounter()
+            counter.add(delta.counter)
+            countersByApp[delta.appName] = counter
+        }
+
+        return countersByApp.mapValues { counter in
+            TrafficRate(
+                downloadBytesPerSecond: Double(counter.bytesIn) / elapsed,
+                uploadBytesPerSecond: Double(counter.bytesOut) / elapsed
+            )
+        }
+    }
 }

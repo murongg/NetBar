@@ -32,13 +32,22 @@ public struct TrafficAppPresentation: Equatable, Sendable {
     public let appName: String
     public let totalLabel: String
     public let detailLabel: String
+    public let liveRateLabel: String
     public let share: Double
     public let routes: [TrafficRoutePresentation]
 
-    public init(appName: String, totalLabel: String, detailLabel: String, share: Double, routes: [TrafficRoutePresentation]) {
+    public init(
+        appName: String,
+        totalLabel: String,
+        detailLabel: String,
+        liveRateLabel: String = "Now ↓ 0 B/s  ↑ 0 B/s",
+        share: Double,
+        routes: [TrafficRoutePresentation]
+    ) {
         self.appName = appName
         self.totalLabel = totalLabel
         self.detailLabel = detailLabel
+        self.liveRateLabel = liveRateLabel
         self.share = share
         self.routes = routes
     }
@@ -153,14 +162,19 @@ public enum TrafficPresentation {
     public static func dashboard(
         summaries: [AppTrafficSummary],
         period: StatisticsPeriod,
-        limit: Int = 12
+        limit: Int = 12,
+        liveRates: [String: TrafficRate] = [:]
     ) -> TrafficDashboardPresentation {
         let routeTotals = routeTotals(in: summaries)
         let totalBytes = routeTotals.values.reduce(UInt64(0)) { $0 + $1.total }
         let maxAppBytes = summaries.map(\.totalBytes).max() ?? 0
 
         let items = summaries.prefix(limit).map { summary in
-            appPresentation(summary, maxAppBytes: maxAppBytes)
+            appPresentation(
+                summary,
+                maxAppBytes: maxAppBytes,
+                liveRate: liveRates[summary.appName] ?? .zero
+            )
         }
 
         return TrafficDashboardPresentation(
@@ -186,7 +200,11 @@ public enum TrafficPresentation {
         return totals
     }
 
-    private static func appPresentation(_ summary: AppTrafficSummary, maxAppBytes: UInt64) -> TrafficAppPresentation {
+    private static func appPresentation(
+        _ summary: AppTrafficSummary,
+        maxAppBytes: UInt64,
+        liveRate: TrafficRate
+    ) -> TrafficAppPresentation {
         let routes = TrafficRoute.allCases.compactMap { route -> TrafficRoutePresentation? in
             guard let counter = summary.routeTotals[route], counter.total > 0 else {
                 return nil
@@ -212,9 +230,14 @@ public enum TrafficPresentation {
             appName: summary.appName,
             totalLabel: ByteFormatting.bytes(summary.totalBytes),
             detailLabel: "Down \(ByteFormatting.bytes(totalCounter.bytesIn))  Up \(ByteFormatting.bytes(totalCounter.bytesOut))",
+            liveRateLabel: appLiveRateLabel(liveRate),
             share: share,
             routes: routes
         )
+    }
+
+    private static func appLiveRateLabel(_ rate: TrafficRate) -> String {
+        "Now \(rateLabel(downloadBytesPerSecond: rate.downloadBytesPerSecond, uploadBytesPerSecond: rate.uploadBytesPerSecond))"
     }
 
     private static func append(_ value: String, to names: inout [String]) {
