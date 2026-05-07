@@ -11,6 +11,9 @@ let package = Package(
         .library(name: "NetBarCore", targets: ["NetBarCore"]),
         .executable(name: "NetBar", targets: ["NetBar"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1")
+    ],
     targets: [
         .target(
             name: "NetBarCore",
@@ -20,7 +23,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "NetBar",
-            dependencies: ["NetBarCore"],
+            dependencies: [
+                "NetBarCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit")
             ]

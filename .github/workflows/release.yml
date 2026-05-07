@@ -48,15 +48,23 @@ jobs:
 
       - name: Package release assets
         id: package
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          scripts/package-release.sh
+          if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+            echo "::error::SPARKLE_PRIVATE_KEY repository secret is required to build Sparkle appcast.xml"
+            exit 1
+          fi
           arch="$(uname -m)"
           asset_name="NetBar-macos-${arch}"
+          scripts/package-release.sh \
+            --appcast-download-url-prefix "https://github.com/murongg/NetBar/releases/download/${RELEASE_TAG}/"
           echo "tarball=dist/${asset_name}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "tarball_checksum=dist/${asset_name}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
           echo "dmg=dist/${asset_name}.dmg" >> "$GITHUB_OUTPUT"
           echo "dmg_checksum=dist/${asset_name}.dmg.sha256" >> "$GITHUB_OUTPUT"
+          echo "appcast=dist/appcast.xml" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
@@ -65,12 +73,13 @@ jobs:
           TARBALL_CHECKSUM: ${{ steps.package.outputs.tarball_checksum }}
           DMG: ${{ steps.package.outputs.dmg }}
           DMG_CHECKSUM: ${{ steps.package.outputs.dmg_checksum }}
+          APPCAST: ${{ steps.package.outputs.appcast }}
         run: |
           set -euo pipefail
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" --clobber
+            gh release upload "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" "${APPCAST}" --clobber
           else
-            gh release create "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" \
+            gh release create "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" "${APPCAST}" \
               --title "${RELEASE_TAG}" \
               --generate-notes \
               --verify-tag

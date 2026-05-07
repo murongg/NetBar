@@ -11,6 +11,9 @@ Builds NetBar.app and packages release artifacts into dist/.
 Options:
   --skip-build          Reuse the existing .build/release/NetBar executable.
   --output-dir <path>   Write artifacts to this directory. Defaults to dist.
+  --appcast-download-url-prefix <url>
+                        Generate dist/appcast.xml for Sparkle updates using
+                        SPARKLE_PRIVATE_KEY and this release asset URL prefix.
   -h, --help            Show this help.
 
 Artifacts:
@@ -18,6 +21,7 @@ Artifacts:
   NetBar-macos-<arch>.dmg.sha256
   NetBar-macos-<arch>.tar.gz
   NetBar-macos-<arch>.tar.gz.sha256
+  appcast.xml when --appcast-download-url-prefix is provided
 EOF
 }
 
@@ -28,6 +32,7 @@ die() {
 
 SKIP_BUILD=0
 OUTPUT_DIR="dist"
+APPCAST_DOWNLOAD_URL_PREFIX=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +49,11 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_DIR="$2"
       shift 2
       ;;
+    --appcast-download-url-prefix)
+      [[ $# -ge 2 ]] || die "--appcast-download-url-prefix requires a URL"
+      APPCAST_DOWNLOAD_URL_PREFIX="$2"
+      shift 2
+      ;;
     -*)
       die "unknown option: $1"
       ;;
@@ -55,7 +65,9 @@ done
 
 command -v git >/dev/null || die "git is required"
 command -v swift >/dev/null || die "swift is required"
+command -v ditto >/dev/null || die "ditto is required"
 command -v hdiutil >/dev/null || die "hdiutil is required to build a DMG"
+command -v install_name_tool >/dev/null || die "install_name_tool is required"
 command -v shasum >/dev/null || die "shasum is required"
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
@@ -66,6 +78,9 @@ cd "${REPO_ROOT}"
 APP_NAME="NetBar"
 BUNDLE_ID="com.murongg.NetBar"
 EXECUTABLE_PATH=".build/release/${APP_NAME}"
+BUILD_PRODUCTS_DIR="$(dirname "${EXECUTABLE_PATH}")"
+SPARKLE_FRAMEWORK_PATH="${BUILD_PRODUCTS_DIR}/Sparkle.framework"
+SPARKLE_BIN_DIR=".build/artifacts/sparkle/Sparkle/bin"
 VERSION="$(sed -nE 's/.*static let current = AppVersion\("([^"]+)"\)!.*/\1/p' Sources/NetBarCore/AppUpdate.swift | head -n 1)"
 [[ -n "${VERSION}" ]] || die "could not read AppVersion.current from Sources/NetBarCore/AppUpdate.swift"
 
@@ -74,6 +89,7 @@ if [[ "${SKIP_BUILD}" != "1" ]]; then
 fi
 
 [[ -x "${EXECUTABLE_PATH}" ]] || die "missing release executable at ${EXECUTABLE_PATH}"
+[[ -d "${SPARKLE_FRAMEWORK_PATH}" ]] || die "missing Sparkle framework at ${SPARKLE_FRAMEWORK_PATH}; run swift build -c release first"
 
 ARCH="$(uname -m)"
 ASSET_NAME="${APP_NAME}-macos-${ARCH}"
@@ -81,9 +97,11 @@ DIST_DIR="${OUTPUT_DIR}"
 APP_BUNDLE="${DIST_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
+FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 TARBALL_PATH="${DIST_DIR}/${ASSET_NAME}.tar.gz"
 DMG_PATH="${DIST_DIR}/${ASSET_NAME}.dmg"
+APPCAST_PATH="${DIST_DIR}/appcast.xml"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/netbar-package.XXXXXX")"
 
 cleanup() {
@@ -92,10 +110,12 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "${DIST_DIR}"
-mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
+mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}"
 
 cp "${EXECUTABLE_PATH}" "${MACOS_DIR}/${APP_NAME}"
 chmod +x "${MACOS_DIR}/${APP_NAME}"
+ditto "${SPARKLE_FRAMEWORK_PATH}" "${FRAMEWORKS_DIR}/Sparkle.framework"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "${MACOS_DIR}/${APP_NAME}"
 
 cat > "${CONTENTS_DIR}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -128,6 +148,16 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUFeedURL</key>
+  <string>https://github.com/murongg/NetBar/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>4gATT3v06UxBra63em2BlXbqfJ3kgf8TkBlpzoANcsQ=</string>
+  <key>SURequireSignedFeed</key>
+  <true/>
+  <key>SUVerifyUpdateBeforeExtraction</key>
+  <true/>
 </dict>
 </plist>
 EOF
@@ -155,8 +185,34 @@ checksum() {
 checksum "${TARBALL_PATH}"
 checksum "${DMG_PATH}"
 
+if [[ -n "${APPCAST_DOWNLOAD_URL_PREFIX}" ]]; then
+  [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]] || die "SPARKLE_PRIVATE_KEY is required to generate a Sparkle appcast"
+  [[ -x "${SPARKLE_BIN_DIR}/generate_appcast" ]] || die "missing Sparkle generate_appcast tool at ${SPARKLE_BIN_DIR}/generate_appcast"
+
+  APPCAST_WORK_DIR="${WORK_DIR}/appcast"
+  mkdir -p "${APPCAST_WORK_DIR}"
+  cp "${DMG_PATH}" "${APPCAST_WORK_DIR}/"
+  cat > "${APPCAST_WORK_DIR}/${ASSET_NAME}.md" <<EOF
+# NetBar ${VERSION}
+
+See the GitHub release for the full changelog.
+EOF
+
+  printf '%s' "${SPARKLE_PRIVATE_KEY}" | "${SPARKLE_BIN_DIR}/generate_appcast" \
+    --ed-key-file - \
+    --download-url-prefix "${APPCAST_DOWNLOAD_URL_PREFIX%/}/" \
+    --link "https://github.com/murongg/NetBar" \
+    --embed-release-notes \
+    --maximum-versions 1 \
+    -o "${APPCAST_PATH}" \
+    "${APPCAST_WORK_DIR}" >/dev/null
+fi
+
 echo "Packaged release artifacts:"
 echo "  ${TARBALL_PATH}"
 echo "  ${TARBALL_PATH}.sha256"
 echo "  ${DMG_PATH}"
 echo "  ${DMG_PATH}.sha256"
+if [[ -f "${APPCAST_PATH}" ]]; then
+  echo "  ${APPCAST_PATH}"
+fi

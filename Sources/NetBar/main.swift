@@ -1,5 +1,6 @@
 import AppKit
 import NetBarCore
+import Sparkle
 import UniformTypeIdentifiers
 
 let app = NSApplication.shared
@@ -23,8 +24,11 @@ final class MenuBarController: NSObject {
     private let model: MonitorModel
     private let dashboardController: DashboardViewController
     private let statusRateView = StatusRateView()
-    private let updateChecker = GitHubUpdateChecker(owner: "murongg", repository: "NetBar")
-    private let releasesURL = URL(string: "https://github.com/murongg/NetBar/releases")!
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     override init() {
         self.model = MonitorModel()
@@ -56,6 +60,7 @@ final class MenuBarController: NSObject {
     func start() {
         configureStatusItem()
         configurePopover()
+        _ = updaterController
         render()
         model.start()
     }
@@ -114,66 +119,9 @@ final class MenuBarController: NSObject {
     }
 
     private func checkForUpdates() {
-        Task {
-            do {
-                let status = try await updateChecker.check()
-                await MainActor.run {
-                    self.presentUpdateStatus(status)
-                }
-            } catch {
-                await MainActor.run {
-                    self.presentUpdateError(error)
-                }
-            }
-        }
-    }
-
-    private func presentUpdateStatus(_ status: AppUpdateStatus) {
+        popover.performClose(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
-
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-
-        switch status {
-        case let .updateAvailable(currentVersion, latestVersion, releaseURL):
-            alert.messageText = "NetBar \(latestVersion.tagString) is available"
-            alert.informativeText = "You are running \(currentVersion.tagString). Open the GitHub release page to download the latest build."
-            alert.addButton(withTitle: "Open Release")
-            alert.addButton(withTitle: "Later")
-
-            if alert.runModal() == .alertFirstButtonReturn {
-                NSWorkspace.shared.open(releaseURL)
-            }
-        case let .upToDate(currentVersion):
-            alert.messageText = "NetBar is up to date"
-            alert.informativeText = "You are running \(currentVersion.tagString)."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        case let .noPublishedRelease(currentVersion):
-            alert.messageText = "No NetBar release has been published yet"
-            alert.informativeText = "You are running \(currentVersion.tagString). Open GitHub Releases to publish or download builds."
-            alert.addButton(withTitle: "Open Releases")
-            alert.addButton(withTitle: "OK")
-
-            if alert.runModal() == .alertFirstButtonReturn {
-                NSWorkspace.shared.open(releasesURL)
-            }
-        }
-    }
-
-    private func presentUpdateError(_ error: Error) {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Unable to check for updates"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "Open Releases")
-        alert.addButton(withTitle: "OK")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.open(releasesURL)
-        }
+        updaterController.checkForUpdates(nil)
     }
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
