@@ -37,4 +37,18 @@ final class TrafficStatisticsTests: XCTestCase {
         XCTAssertEqual(rates["Safari"], TrafficRate(downloadBytesPerSecond: 1_536, uploadBytesPerSecond: 384))
         XCTAssertEqual(rates["Code"], TrafficRate(downloadBytesPerSecond: 256, uploadBytesPerSecond: 64))
     }
+
+    func testBuildsLiveRatesByAppForSelectedRoute() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let deltas = [
+            TrafficDelta(timestamp: now, appName: "Safari", pid: 42, route: .direct, bytesIn: 2_048, bytesOut: 512),
+            TrafficDelta(timestamp: now, appName: "Safari", pid: 43, route: .proxy, bytesIn: 1_024, bytesOut: 256),
+            TrafficDelta(timestamp: now, appName: "Code", pid: 9, route: .direct, bytesIn: 512, bytesOut: 128)
+        ]
+
+        let rates = TrafficStatistics.liveRates(from: deltas, elapsed: 2, routeFilter: .direct)
+
+        XCTAssertEqual(rates["Safari"], TrafficRate(downloadBytesPerSecond: 1_024, uploadBytesPerSecond: 256))
+        XCTAssertEqual(rates["Code"], TrafficRate(downloadBytesPerSecond: 256, uploadBytesPerSecond: 64))
+    }
 }

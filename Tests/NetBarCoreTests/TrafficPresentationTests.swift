@@ -67,6 +67,46 @@ final class TrafficPresentationTests: XCTestCase {
         XCTAssertEqual(dashboard.items[1].liveRateLabel, "Now ↓ 0 B/s  ↑ 0 B/s")
     }
 
+    func testFiltersDashboardPresentationByRoute() {
+        let summaries = [
+            AppTrafficSummary(
+                appName: "Safari",
+                routeTotals: [
+                    .proxy: TrafficCounter(bytesIn: 1_024, bytesOut: 1_024),
+                    .direct: TrafficCounter(bytesIn: 8_192, bytesOut: 0)
+                ]
+            ),
+            AppTrafficSummary(
+                appName: "Code",
+                routeTotals: [
+                    .direct: TrafficCounter(bytesIn: 4_096, bytesOut: 0)
+                ]
+            ),
+            AppTrafficSummary(
+                appName: "Terminal",
+                routeTotals: [
+                    .loopback: TrafficCounter(bytesIn: 512, bytesOut: 512)
+                ]
+            )
+        ]
+
+        let dashboard = TrafficPresentation.dashboard(
+            summaries: summaries,
+            period: .day,
+            limit: 8,
+            routeFilter: .proxy
+        )
+
+        XCTAssertEqual(dashboard.totalLabel, "2.0 KB")
+        XCTAssertEqual(dashboard.proxyLabel, "2.0 KB")
+        XCTAssertEqual(dashboard.directLabel, "12.0 KB")
+        XCTAssertEqual(dashboard.loopbackLabel, "1.0 KB")
+        XCTAssertEqual(dashboard.items.map(\.appName), ["Safari"])
+        XCTAssertEqual(dashboard.items[0].totalLabel, "2.0 KB")
+        XCTAssertEqual(dashboard.items[0].detailLabel, "Down 1.0 KB  Up 1.0 KB")
+        XCTAssertEqual(dashboard.items[0].routes.map(\.title), ["Proxy"])
+    }
+
     func testBuildsCompactRateLabelWithDownloadAndUpload() {
         let label = TrafficPresentation.rateLabel(downloadBytesPerSecond: 85_920, uploadBytesPerSecond: 12_288)
 
@@ -101,6 +141,18 @@ final class TrafficPresentationTests: XCTestCase {
         XCTAssertEqual(layout.minimumItemHeight, 22)
         XCTAssertEqual(layout.textColumnWidth, 52)
         XCTAssertEqual(layout.statusItemWidth, 82)
+    }
+
+    func testDashboardLayoutKeepsMenuCompact() {
+        let layout = TrafficPresentation.dashboardLayout
+
+        XCTAssertEqual(layout.popoverWidth, 360)
+        XCTAssertEqual(layout.popoverHeight, 500)
+        XCTAssertEqual(layout.contentPadding, 14)
+        XCTAssertEqual(layout.sectionSpacing, 10)
+        XCTAssertEqual(layout.filterControlRows, 2)
+        XCTAssertEqual(layout.appIconSize, 28)
+        XCTAssertEqual(layout.rowMinimumHeight, 88)
     }
 
     func testBuildsAppIconSearchNamesForHelperProcesses() {

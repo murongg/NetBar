@@ -100,6 +100,39 @@ public enum TrafficRoute: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public enum TrafficRouteFilter: String, Codable, CaseIterable, Sendable {
+    case all
+    case proxy
+    case direct
+    case loopback
+
+    public var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .proxy:
+            return TrafficRoute.proxy.title
+        case .direct:
+            return TrafficRoute.direct.title
+        case .loopback:
+            return TrafficRoute.loopback.title
+        }
+    }
+
+    public var route: TrafficRoute? {
+        switch self {
+        case .all:
+            return nil
+        case .proxy:
+            return .proxy
+        case .direct:
+            return .direct
+        case .loopback:
+            return .loopback
+        }
+    }
+}
+
 public struct TrafficCounter: Codable, Equatable, Sendable {
     public var bytesIn: UInt64
     public var bytesOut: UInt64

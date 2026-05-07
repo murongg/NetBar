@@ -38,6 +38,9 @@ final class MenuBarController: NSObject {
         dashboardController.onPeriodChange = { [weak self] period in
             self?.model.period = period
         }
+        dashboardController.onRouteFilterChange = { [weak self] routeFilter in
+            self?.model.routeFilter = routeFilter
+        }
         dashboardController.onRefresh = { [weak self] in
             self?.model.tick()
         }
@@ -91,7 +94,8 @@ final class MenuBarController: NSObject {
 
     private func configurePopover() {
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 400, height: 540)
+        let layout = TrafficPresentation.dashboardLayout
+        popover.contentSize = NSSize(width: layout.popoverWidth, height: layout.popoverHeight)
         popover.contentViewController = dashboardController
         _ = dashboardController.view
     }
@@ -101,6 +105,7 @@ final class MenuBarController: NSObject {
         dashboardController.update(
             dashboard: model.dashboard,
             period: model.period,
+            routeFilter: model.routeFilter,
             lastUpdated: model.lastUpdated,
             lastError: model.lastError,
             downloadRate: model.lastDownloadBytesPerSecond,
@@ -223,11 +228,13 @@ final class StatusRateView: NSView {
 
 final class DashboardViewController: NSViewController {
     var onPeriodChange: ((StatisticsPeriod) -> Void)?
+    var onRouteFilterChange: ((TrafficRouteFilter) -> Void)?
     var onRefresh: (() -> Void)?
     var onOpenDataFolder: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
     var onQuit: (() -> Void)?
 
+    private let layout = TrafficPresentation.dashboardLayout
     private let iconProvider = AppIconProvider()
     private let titleLabel = Label(style: .title)
     private let statusLabel = Label(style: .caption)
@@ -238,13 +245,14 @@ final class DashboardViewController: NSViewController {
     private let directMetric = MetricPillView(title: "Direct", symbolName: "arrow.triangle.branch")
     private let loopbackMetric = MetricPillView(title: "Local", symbolName: "desktopcomputer")
     private let periodControl = NSSegmentedControl(labels: StatisticsPeriod.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
+    private let routeControl = NSSegmentedControl(labels: TrafficRouteFilter.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
     private let rowStack = NSStackView()
     private let emptyState = Label(style: .body)
     private let scrollView = NSScrollView()
     private var rowWidthConstraints: [NSLayoutConstraint] = []
 
     override func loadView() {
-        view = NSView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 540)))
+        view = NSView(frame: NSRect(origin: .zero, size: NSSize(width: layout.popoverWidth, height: layout.popoverHeight)))
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
 
@@ -258,14 +266,19 @@ final class DashboardViewController: NSViewController {
         let rootStack = NSStackView()
         rootStack.orientation = .vertical
         rootStack.alignment = .leading
-        rootStack.spacing = 14
-        rootStack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 16, right: 18)
+        rootStack.spacing = CGFloat(layout.sectionSpacing)
+        rootStack.edgeInsets = NSEdgeInsets(
+            top: CGFloat(layout.contentPadding),
+            left: CGFloat(layout.contentPadding),
+            bottom: CGFloat(layout.contentPadding),
+            right: CGFloat(layout.contentPadding)
+        )
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         effectView.addSubview(rootStack)
 
         rootStack.addArrangedSubview(headerView())
         rootStack.addArrangedSubview(totalBand())
-        rootStack.addArrangedSubview(periodView())
+        rootStack.addArrangedSubview(filterView())
         rootStack.addArrangedSubview(listView())
         rootStack.addArrangedSubview(footerView())
 
@@ -282,9 +295,9 @@ final class DashboardViewController: NSViewController {
 
             headerViewWidthConstraint(rootStack),
             totalBandWidthConstraint(rootStack),
-            periodViewWidthConstraint(rootStack),
-            scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36),
-            scrollView.heightAnchor.constraint(equalToConstant: 255),
+            filterViewWidthConstraint(rootStack),
+            scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -CGFloat(layout.contentPadding * 2)),
+            scrollView.heightAnchor.constraint(equalToConstant: CGFloat(layout.scrollHeight)),
             footerWidthConstraint(rootStack)
         ])
     }
@@ -292,6 +305,7 @@ final class DashboardViewController: NSViewController {
     func update(
         dashboard: TrafficDashboardPresentation,
         period: StatisticsPeriod,
+        routeFilter: TrafficRouteFilter,
         lastUpdated: Date?,
         lastError: String?,
         downloadRate: Double,
@@ -303,10 +317,11 @@ final class DashboardViewController: NSViewController {
             uploadBytesPerSecond: uploadRate
         )
         totalValueLabel.stringValue = dashboard.totalLabel
-        totalCaptionLabel.stringValue = "\(dashboard.periodTitle) traffic"
+        totalCaptionLabel.stringValue = Self.totalCaption(periodTitle: dashboard.periodTitle, routeFilter: routeFilter)
         proxyMetric.value = dashboard.proxyLabel
         directMetric.value = dashboard.directLabel
         loopbackMetric.value = dashboard.loopbackLabel
+        emptyState.stringValue = Self.emptyStateText(routeFilter: routeFilter)
 
         if let lastError {
             statusLabel.stringValue = "Sampling failed: \(lastError)"
@@ -322,16 +337,17 @@ final class DashboardViewController: NSViewController {
         if let index = StatisticsPeriod.allCases.firstIndex(of: period) {
             periodControl.selectedSegment = index
         }
+        if let index = TrafficRouteFilter.allCases.firstIndex(of: routeFilter) {
+            routeControl.selectedSegment = index
+        }
 
         rebuildRows(with: dashboard.items)
     }
 
     private func headerView() -> NSView {
-        let icon = SymbolBadgeView(symbolName: "arrow.up.arrow.down.circle.fill", tintColor: .controlAccentColor)
-
         let titleStack = NSStackView()
         titleStack.orientation = .vertical
-        titleStack.spacing = 3
+        titleStack.spacing = 2
         titleStack.alignment = .leading
         titleStack.addArrangedSubview(titleLabel)
         titleStack.addArrangedSubview(statusLabel)
@@ -339,12 +355,13 @@ final class DashboardViewController: NSViewController {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let ratePill = InlinePillView(symbolName: "speedometer", label: rateLabel)
+        rateLabel.alignment = .right
+        rateLabel.textColor = .secondaryLabelColor
 
-        let stack = NSStackView(views: [icon, titleStack, spacer, ratePill])
+        let stack = NSStackView(views: [titleStack, spacer, rateLabel])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 10
+        stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.identifier = NSUserInterfaceItemIdentifier("header")
         return stack
@@ -354,7 +371,7 @@ final class DashboardViewController: NSViewController {
         let totalStack = NSStackView()
         totalStack.orientation = .vertical
         totalStack.alignment = .leading
-        totalStack.spacing = 2
+        totalStack.spacing = 1
         totalStack.addArrangedSubview(totalCaptionLabel)
         totalStack.addArrangedSubview(totalValueLabel)
 
@@ -367,36 +384,39 @@ final class DashboardViewController: NSViewController {
         let stack = NSStackView(views: [totalStack, routeStack])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        stack.spacing = 9
+        stack.edgeInsets = NSEdgeInsetsZero
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.identifier = NSUserInterfaceItemIdentifier("totalBand")
-        stack.wantsLayer = true
-        stack.layer?.cornerRadius = 12
-        stack.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.78).cgColor
-        stack.layer?.borderWidth = 1
-        stack.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
 
         NSLayoutConstraint.activate([
-            routeStack.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28)
+            routeStack.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         return stack
     }
 
-    private func periodView() -> NSView {
+    private func filterView() -> NSView {
         periodControl.segmentStyle = .rounded
         periodControl.target = self
         periodControl.action = #selector(periodChanged(_:))
         periodControl.translatesAutoresizingMaskIntoConstraints = false
         periodControl.identifier = NSUserInterfaceItemIdentifier("period")
 
-        let stack = NSStackView(views: [periodControl])
+        routeControl.segmentStyle = .rounded
+        routeControl.target = self
+        routeControl.action = #selector(routeFilterChanged(_:))
+        routeControl.translatesAutoresizingMaskIntoConstraints = false
+        routeControl.identifier = NSUserInterfaceItemIdentifier("routeFilter")
+
+        let stack = NSStackView(views: [periodControl, routeControl])
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.identifier = NSUserInterfaceItemIdentifier("periodWrap")
+        stack.alignment = .width
+        stack.spacing = CGFloat(layout.filterSpacing)
+        stack.identifier = NSUserInterfaceItemIdentifier("filterWrap")
 
         NSLayoutConstraint.activate([
-            periodControl.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            periodControl.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            routeControl.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         return stack
     }
@@ -404,7 +424,7 @@ final class DashboardViewController: NSViewController {
     private func listView() -> NSView {
         rowStack.orientation = .vertical
         rowStack.alignment = .leading
-        rowStack.spacing = 9
+        rowStack.spacing = 0
         rowStack.translatesAutoresizingMaskIntoConstraints = false
 
         emptyState.stringValue = "No traffic deltas yet. Keep NetBar running for a few seconds."
@@ -489,12 +509,12 @@ final class DashboardViewController: NSViewController {
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: tooltip) ?? NSImage()
         let button = NSButton(image: image, target: self, action: action)
         button.bezelStyle = .texturedRounded
-        button.isBordered = true
+        button.isBordered = false
         button.toolTip = tooltip
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 30),
-            button.heightAnchor.constraint(equalToConstant: 28)
+            button.widthAnchor.constraint(equalToConstant: 26),
+            button.heightAnchor.constraint(equalToConstant: 24)
         ])
         return button
     }
@@ -505,6 +525,14 @@ final class DashboardViewController: NSViewController {
             return
         }
         onPeriodChange?(StatisticsPeriod.allCases[index])
+    }
+
+    @objc private func routeFilterChanged(_ sender: NSSegmentedControl) {
+        let index = sender.selectedSegment
+        guard TrafficRouteFilter.allCases.indices.contains(index) else {
+            return
+        }
+        onRouteFilterChange?(TrafficRouteFilter.allCases[index])
     }
 
     @objc private func refresh(_ sender: NSButton) {
@@ -525,30 +553,30 @@ final class DashboardViewController: NSViewController {
 
     private func headerViewWidthConstraint(_ rootStack: NSStackView) -> NSLayoutConstraint {
         guard let header = rootStack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "header" }) else {
-            return view.widthAnchor.constraint(equalToConstant: 400)
+            return view.widthAnchor.constraint(equalToConstant: CGFloat(layout.popoverWidth))
         }
-        return header.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36)
+        return header.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -CGFloat(layout.contentPadding * 2))
     }
 
     private func totalBandWidthConstraint(_ rootStack: NSStackView) -> NSLayoutConstraint {
         guard let band = rootStack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "totalBand" }) else {
-            return view.widthAnchor.constraint(equalToConstant: 400)
+            return view.widthAnchor.constraint(equalToConstant: CGFloat(layout.popoverWidth))
         }
-        return band.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36)
+        return band.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -CGFloat(layout.contentPadding * 2))
     }
 
-    private func periodViewWidthConstraint(_ rootStack: NSStackView) -> NSLayoutConstraint {
-        guard let period = rootStack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "periodWrap" }) else {
-            return view.widthAnchor.constraint(equalToConstant: 400)
+    private func filterViewWidthConstraint(_ rootStack: NSStackView) -> NSLayoutConstraint {
+        guard let period = rootStack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "filterWrap" }) else {
+            return view.widthAnchor.constraint(equalToConstant: CGFloat(layout.popoverWidth))
         }
-        return period.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36)
+        return period.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -CGFloat(layout.contentPadding * 2))
     }
 
     private func footerWidthConstraint(_ rootStack: NSStackView) -> NSLayoutConstraint {
         guard let footer = rootStack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "footer" }) else {
-            return view.widthAnchor.constraint(equalToConstant: 400)
+            return view.widthAnchor.constraint(equalToConstant: CGFloat(layout.popoverWidth))
         }
-        return footer.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -36)
+        return footer.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -CGFloat(layout.contentPadding * 2))
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -557,20 +585,30 @@ final class DashboardViewController: NSViewController {
         formatter.timeStyle = .medium
         return formatter
     }()
+
+    private static func totalCaption(periodTitle: String, routeFilter: TrafficRouteFilter) -> String {
+        guard routeFilter != .all else {
+            return "\(periodTitle) traffic"
+        }
+        return "\(periodTitle) \(routeFilter.title.lowercased()) traffic"
+    }
+
+    private static func emptyStateText(routeFilter: TrafficRouteFilter) -> String {
+        guard routeFilter != .all else {
+            return "No traffic deltas yet. Keep NetBar running for a few seconds."
+        }
+        return "No \(routeFilter.title.lowercased()) traffic in this period."
+    }
 }
 
 final class AppTrafficRowView: NSView {
     private let barView: RouteBarView
 
     init(item: TrafficAppPresentation, icon: NSImage) {
+        let layout = TrafficPresentation.dashboardLayout
         self.barView = RouteBarView(routes: item.routes, share: item.share)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.36).cgColor
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
 
         let nameLabel = Label(style: .bodyStrong)
         nameLabel.stringValue = item.appName
@@ -605,29 +643,39 @@ final class AppTrafficRowView: NSView {
         let body = NSStackView(views: [topLine, detailLabel, liveRateLabel, barView, chipStack])
         body.orientation = .vertical
         body.alignment = .leading
-        body.spacing = 6
+        body.spacing = 4
 
         let iconView = AppIconView(image: icon)
         let content = NSStackView(views: [iconView, body])
         content.orientation = .horizontal
         content.alignment = .top
-        content.spacing = 10
-        content.edgeInsets = NSEdgeInsets(top: 11, left: 12, bottom: 11, right: 12)
+        content.spacing = 9
+        content.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
 
+        let separator = NSView()
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.32).cgColor
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(separator)
+
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 110),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: CGFloat(layout.rowMinimumHeight)),
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.topAnchor.constraint(equalTo: topAnchor),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor),
-            body.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -62),
+            content.bottomAnchor.constraint(equalTo: separator.topAnchor),
+            body.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -CGFloat(layout.appIconSize + 9)),
             topLine.widthAnchor.constraint(equalTo: body.widthAnchor),
             detailLabel.widthAnchor.constraint(equalTo: body.widthAnchor),
             liveRateLabel.widthAnchor.constraint(equalTo: body.widthAnchor),
             barView.widthAnchor.constraint(equalTo: body.widthAnchor),
-            barView.heightAnchor.constraint(equalToConstant: 6)
+            barView.heightAnchor.constraint(equalToConstant: 4),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1)
         ])
     }
 
@@ -639,13 +687,9 @@ final class AppTrafficRowView: NSView {
 
 final class AppIconView: NSView {
     init(image: NSImage) {
+        let size = CGFloat(TrafficPresentation.dashboardLayout.appIconSize)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.65).cgColor
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
 
         let imageView = NSImageView(image: image)
         imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -653,12 +697,12 @@ final class AppIconView: NSView {
         addSubview(imageView)
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 32),
-            heightAnchor.constraint(equalToConstant: 32),
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            imageView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+            widthAnchor.constraint(equalToConstant: size),
+            heightAnchor.constraint(equalToConstant: size),
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
 
@@ -784,12 +828,9 @@ final class MetricPillView: NSView {
 
     init(title: String, symbolName: String) {
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.38).cgColor
 
         let symbol = NSImageView(image: NSImage(systemSymbolName: symbolName, accessibilityDescription: title) ?? NSImage())
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         symbol.contentTintColor = .secondaryLabelColor
         symbol.translatesAutoresizingMaskIntoConstraints = false
 
@@ -807,8 +848,8 @@ final class MetricPillView: NSView {
         let stack = NSStackView(views: [symbol, textStack])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 7, left: 8, bottom: 7, right: 8)
+        stack.spacing = 5
+        stack.edgeInsets = NSEdgeInsetsZero
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
@@ -895,13 +936,10 @@ final class SymbolBadgeView: NSView {
 final class RouteChipView: NSView {
     init(route: TrafficRoutePresentation) {
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 999
-        layer?.backgroundColor = route.route.displayColor.withAlphaComponent(0.13).cgColor
 
         let dot = NSView()
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = 3
+        dot.layer?.cornerRadius = 2.5
         dot.layer?.backgroundColor = route.route.displayColor.cgColor
         dot.translatesAutoresizingMaskIntoConstraints = false
 
@@ -912,14 +950,14 @@ final class RouteChipView: NSView {
         let stack = NSStackView(views: [dot, label])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 5
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 7, bottom: 4, right: 8)
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsetsZero
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 6),
-            dot.heightAnchor.constraint(equalToConstant: 6),
+            dot.widthAnchor.constraint(equalToConstant: 5),
+            dot.heightAnchor.constraint(equalToConstant: 5),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
@@ -995,15 +1033,15 @@ final class Label: NSTextField {
 
         switch style {
         case .title:
-            font = .systemFont(ofSize: 15, weight: .semibold)
+            font = .systemFont(ofSize: 14, weight: .semibold)
         case .headline:
-            font = .monospacedDigitSystemFont(ofSize: 26, weight: .semibold)
+            font = .monospacedDigitSystemFont(ofSize: 23, weight: .semibold)
         case .body:
-            font = .systemFont(ofSize: 13, weight: .regular)
+            font = .systemFont(ofSize: 12, weight: .regular)
         case .bodyStrong:
-            font = .systemFont(ofSize: 13, weight: .semibold)
+            font = .systemFont(ofSize: 12, weight: .semibold)
         case .caption:
-            font = .systemFont(ofSize: 11, weight: .medium)
+            font = .systemFont(ofSize: 10.5, weight: .medium)
             textColor = .secondaryLabelColor
         }
     }
@@ -1021,7 +1059,6 @@ final class MonitorModel {
     private(set) var lastError: String?
     private(set) var lastDownloadBytesPerSecond: Double = 0
     private(set) var lastUploadBytesPerSecond: Double = 0
-    private(set) var liveAppRates: [String: TrafficRate] = [:]
 
     private let collector: NetworkSnapshotCollecting
     private let proxyProvider: ProxySettingsProviding
@@ -1031,6 +1068,8 @@ final class MonitorModel {
     private var timer: Timer?
     private var accumulator = TrafficAccumulator()
     private var lastSampleDate: Date?
+    private var lastDeltas: [TrafficDelta] = []
+    private var lastSampleElapsed: TimeInterval = 0
 
     var period: StatisticsPeriod = .day {
         didSet {
@@ -1038,8 +1077,26 @@ final class MonitorModel {
         }
     }
 
+    var routeFilter: TrafficRouteFilter = .all {
+        didSet {
+            guard oldValue != routeFilter else {
+                return
+            }
+            onChange?()
+        }
+    }
+
     var dashboard: TrafficDashboardPresentation {
-        TrafficPresentation.dashboard(summaries: summaries, period: period, liveRates: liveAppRates)
+        TrafficPresentation.dashboard(
+            summaries: summaries,
+            period: period,
+            liveRates: TrafficStatistics.liveRates(
+                from: lastDeltas,
+                elapsed: lastSampleElapsed,
+                routeFilter: routeFilter
+            ),
+            routeFilter: routeFilter
+        )
     }
 
     var storeFileURL: URL {
@@ -1099,7 +1156,6 @@ final class MonitorModel {
                 let elapsed = self.lastSampleDate.map { snapshot.timestamp.timeIntervalSince($0) } ?? self.sampleInterval
                 let downloadRate = elapsed > 0 ? Double(downloadBytes) / elapsed : 0
                 let uploadRate = elapsed > 0 ? Double(uploadBytes) / elapsed : 0
-                let liveAppRates = TrafficStatistics.liveRates(from: deltas, elapsed: elapsed)
                 self.lastSampleDate = snapshot.timestamp
 
                 let summaries = TrafficStatistics.aggregate(self.store.deltas, period: period, now: Date())
@@ -1109,7 +1165,8 @@ final class MonitorModel {
                     self.lastUpdated = snapshot.timestamp
                     self.lastDownloadBytesPerSecond = downloadRate
                     self.lastUploadBytesPerSecond = uploadRate
-                    self.liveAppRates = liveAppRates
+                    self.lastDeltas = deltas
+                    self.lastSampleElapsed = elapsed
                     self.summaries = summaries
                     self.onChange?()
                 }

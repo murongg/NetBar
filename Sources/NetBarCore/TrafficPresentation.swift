@@ -99,6 +99,40 @@ public struct StatusBarRateLayout: Equatable, Sendable {
     }
 }
 
+public struct DashboardLayout: Equatable, Sendable {
+    public let popoverWidth: Int
+    public let popoverHeight: Int
+    public let contentPadding: Int
+    public let sectionSpacing: Int
+    public let filterSpacing: Int
+    public let filterControlRows: Int
+    public let scrollHeight: Int
+    public let appIconSize: Int
+    public let rowMinimumHeight: Int
+
+    public init(
+        popoverWidth: Int,
+        popoverHeight: Int,
+        contentPadding: Int,
+        sectionSpacing: Int,
+        filterSpacing: Int,
+        filterControlRows: Int,
+        scrollHeight: Int,
+        appIconSize: Int,
+        rowMinimumHeight: Int
+    ) {
+        self.popoverWidth = popoverWidth
+        self.popoverHeight = popoverHeight
+        self.contentPadding = contentPadding
+        self.sectionSpacing = sectionSpacing
+        self.filterSpacing = filterSpacing
+        self.filterControlRows = filterControlRows
+        self.scrollHeight = scrollHeight
+        self.appIconSize = appIconSize
+        self.rowMinimumHeight = rowMinimumHeight
+    }
+}
+
 public enum TrafficPresentation {
     public static let statusBarRateLayout = StatusBarRateLayout(
         iconSize: 14,
@@ -107,6 +141,18 @@ public enum TrafficPresentation {
         horizontalPadding: 2.5,
         textColumnWidth: 52,
         minimumItemHeight: 22
+    )
+
+    public static let dashboardLayout = DashboardLayout(
+        popoverWidth: 360,
+        popoverHeight: 500,
+        contentPadding: 14,
+        sectionSpacing: 10,
+        filterSpacing: 6,
+        filterControlRows: 2,
+        scrollHeight: 232,
+        appIconSize: 28,
+        rowMinimumHeight: 88
     )
 
     public static func rateLabel(downloadBytesPerSecond: Double, uploadBytesPerSecond: Double) -> String {
@@ -163,13 +209,16 @@ public enum TrafficPresentation {
         summaries: [AppTrafficSummary],
         period: StatisticsPeriod,
         limit: Int = 12,
-        liveRates: [String: TrafficRate] = [:]
+        liveRates: [String: TrafficRate] = [:],
+        routeFilter: TrafficRouteFilter = .all
     ) -> TrafficDashboardPresentation {
-        let routeTotals = routeTotals(in: summaries)
-        let totalBytes = routeTotals.values.reduce(UInt64(0)) { $0 + $1.total }
-        let maxAppBytes = summaries.map(\.totalBytes).max() ?? 0
+        let allRouteTotals = routeTotals(in: summaries)
+        let displaySummaries = summariesFilteredForDisplay(summaries, routeFilter: routeFilter)
+        let displayRouteTotals = routeTotals(in: displaySummaries)
+        let totalBytes = displayRouteTotals.values.reduce(UInt64(0)) { $0 + $1.total }
+        let maxAppBytes = displaySummaries.map(\.totalBytes).max() ?? 0
 
-        let items = summaries.prefix(limit).map { summary in
+        let items = displaySummaries.prefix(limit).map { summary in
             appPresentation(
                 summary,
                 maxAppBytes: maxAppBytes,
@@ -180,12 +229,34 @@ public enum TrafficPresentation {
         return TrafficDashboardPresentation(
             periodTitle: period.title,
             totalLabel: ByteFormatting.bytes(totalBytes),
-            proxyLabel: ByteFormatting.bytes(routeTotals[.proxy]?.total ?? 0),
-            directLabel: ByteFormatting.bytes(routeTotals[.direct]?.total ?? 0),
-            loopbackLabel: ByteFormatting.bytes(routeTotals[.loopback]?.total ?? 0),
-            unknownLabel: ByteFormatting.bytes(routeTotals[.unknown]?.total ?? 0),
+            proxyLabel: ByteFormatting.bytes(allRouteTotals[.proxy]?.total ?? 0),
+            directLabel: ByteFormatting.bytes(allRouteTotals[.direct]?.total ?? 0),
+            loopbackLabel: ByteFormatting.bytes(allRouteTotals[.loopback]?.total ?? 0),
+            unknownLabel: ByteFormatting.bytes(allRouteTotals[.unknown]?.total ?? 0),
             items: items
         )
+    }
+
+    private static func summariesFilteredForDisplay(
+        _ summaries: [AppTrafficSummary],
+        routeFilter: TrafficRouteFilter
+    ) -> [AppTrafficSummary] {
+        guard let route = routeFilter.route else {
+            return summaries
+        }
+
+        return summaries.compactMap { summary in
+            guard let counter = summary.routeTotals[route], counter.total > 0 else {
+                return nil
+            }
+            return AppTrafficSummary(appName: summary.appName, routeTotals: [route: counter])
+        }
+        .sorted {
+            if $0.totalBytes == $1.totalBytes {
+                return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+            }
+            return $0.totalBytes > $1.totalBytes
+        }
     }
 
     private static func routeTotals(in summaries: [AppTrafficSummary]) -> [TrafficRoute: TrafficCounter] {

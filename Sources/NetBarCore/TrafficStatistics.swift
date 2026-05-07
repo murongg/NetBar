@@ -44,13 +44,17 @@ public enum TrafficStatistics {
         }
     }
 
-    public static func liveRates(from deltas: [TrafficDelta], elapsed: TimeInterval) -> [String: TrafficRate] {
+    public static func liveRates(
+        from deltas: [TrafficDelta],
+        elapsed: TimeInterval,
+        routeFilter: TrafficRouteFilter = .all
+    ) -> [String: TrafficRate] {
         guard elapsed > 0 else {
             return [:]
         }
 
         var countersByApp: [String: TrafficCounter] = [:]
-        for delta in deltas {
+        for delta in deltas where routeFilter.includes(delta.route) {
             var counter = countersByApp[delta.appName] ?? TrafficCounter()
             counter.add(delta.counter)
             countersByApp[delta.appName] = counter
@@ -62,5 +66,11 @@ public enum TrafficStatistics {
                 uploadBytesPerSecond: Double(counter.bytesOut) / elapsed
             )
         }
+    }
+}
+
+private extension TrafficRouteFilter {
+    func includes(_ route: TrafficRoute) -> Bool {
+        self.route.map { $0 == route } ?? true
     }
 }
