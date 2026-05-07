@@ -56,6 +56,12 @@ final class TrafficPresentationTests: XCTestCase {
         XCTAssertEqual(label, "↓14.7M/s\n↑674B/s")
     }
 
+    func testBuildsInlineStatusBarRateLabelForNativeButtonTitle() {
+        let label = TrafficPresentation.inlineStatusBarRateLabel(downloadBytesPerSecond: 15_413_248, uploadBytesPerSecond: 674)
+
+        XCTAssertEqual(label, "↓14.7M/s  ↑674B/s")
+    }
+
     func testStatusBarRateLayoutCentersIconAgainstTwoLineTextBlock() {
         let layout = TrafficPresentation.statusBarRateLayout
 

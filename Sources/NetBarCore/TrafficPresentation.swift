@@ -112,6 +112,14 @@ public enum TrafficPresentation {
         "↓\(ByteFormatting.compactRate(downloadBytesPerSecond))\n↑\(ByteFormatting.compactRate(uploadBytesPerSecond))"
     }
 
+    public static func inlineStatusBarRateLabel(downloadBytesPerSecond: Double, uploadBytesPerSecond: Double) -> String {
+        statusBarRateLabel(
+            downloadBytesPerSecond: downloadBytesPerSecond,
+            uploadBytesPerSecond: uploadBytesPerSecond
+        )
+        .replacingOccurrences(of: "\n", with: "  ")
+    }
+
     public static func appIconSearchNames(for appName: String) -> [String] {
         let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

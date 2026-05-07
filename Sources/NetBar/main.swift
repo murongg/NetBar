@@ -22,7 +22,6 @@ final class MenuBarController: NSObject {
     private let popover = NSPopover()
     private let model: MonitorModel
     private let dashboardController: DashboardViewController
-    private let statusRateView = StatusRateView()
     private let updateChecker = GitHubUpdateChecker(owner: "murongg", repository: "NetBar")
     private let releasesURL = URL(string: "https://github.com/murongg/NetBar/releases")!
 
@@ -65,25 +64,15 @@ final class MenuBarController: NSObject {
             return
         }
 
-        statusItem.length = TrafficPresentation.statusBarRateLayout.statusItemWidth
-        button.image = nil
-        button.title = ""
-        button.attributedTitle = NSAttributedString()
+        statusItem.length = 112
+        let image = NSImage(systemSymbolName: "arrow.up.arrow.down.circle", accessibilityDescription: "NetBar")
+        image?.isTemplate = true
+        button.image = image
+        button.imagePosition = .imageLeading
+        button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         button.target = self
         button.action = #selector(togglePopover(_:))
         button.toolTip = "NetBar \(AppVersion.current.tagString)"
-
-        statusRateView.translatesAutoresizingMaskIntoConstraints = false
-        button.addSubview(statusRateView)
-
-        NSLayoutConstraint.activate([
-            statusRateView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-            statusRateView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-            statusRateView.leadingAnchor.constraint(greaterThanOrEqualTo: button.leadingAnchor, constant: 4),
-            statusRateView.trailingAnchor.constraint(lessThanOrEqualTo: button.trailingAnchor, constant: -4),
-            statusRateView.widthAnchor.constraint(equalToConstant: TrafficPresentation.statusBarRateLayout.statusItemWidth - 8),
-            statusRateView.heightAnchor.constraint(greaterThanOrEqualToConstant: TrafficPresentation.statusBarRateLayout.minimumItemHeight)
-        ])
     }
 
     private func configurePopover() {
@@ -110,8 +99,8 @@ final class MenuBarController: NSObject {
             return
         }
 
-        statusRateView.title = title
-        button.toolTip = "NetBar \(AppVersion.current.tagString)  \(title.replacingOccurrences(of: "\n", with: "  "))"
+        button.title = title
+        button.toolTip = "NetBar \(AppVersion.current.tagString)  \(title)"
         button.setAccessibilityLabel(button.toolTip)
     }
 
@@ -189,93 +178,6 @@ final class MenuBarController: NSObject {
     }
 }
 
-final class StatusRateView: NSView {
-    private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let layout = TrafficPresentation.statusBarRateLayout
-
-    var title: String {
-        get { titleLabel.stringValue }
-        set {
-            titleLabel.attributedStringValue = StatusRateView.attributedTitle(newValue, lineHeight: CGFloat(layout.lineHeight))
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        return NSSize(
-            width: CGFloat(layout.statusItemWidth - 8),
-            height: CGFloat(max(layout.minimumItemHeight, layout.contentHeight))
-        )
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-
-    private func setup() {
-        wantsLayer = false
-
-        iconView.image = NSImage(systemSymbolName: "arrow.up.arrow.down.circle", accessibilityDescription: "NetBar")
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: CGFloat(layout.iconSize), weight: .semibold)
-        iconView.contentTintColor = .labelColor
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel.isEditable = false
-        titleLabel.isBordered = false
-        titleLabel.drawsBackground = false
-        titleLabel.maximumNumberOfLines = 2
-        titleLabel.lineBreakMode = .byClipping
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(iconView)
-        addSubview(titleLabel)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: CGFloat(layout.horizontalPadding)),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: CGFloat(layout.iconSize)),
-            iconView.heightAnchor.constraint(equalToConstant: CGFloat(layout.iconSize)),
-
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: CGFloat(layout.spacing)),
-            titleLabel.widthAnchor.constraint(equalToConstant: CGFloat(layout.textColumnWidth)),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -CGFloat(layout.horizontalPadding)),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.heightAnchor.constraint(equalToConstant: CGFloat(layout.textBlockHeight)),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: CGFloat(layout.minimumItemHeight))
-        ])
-    }
-
-    private static func attributedTitle(_ title: String, lineHeight: CGFloat) -> NSAttributedString {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .left
-        paragraph.minimumLineHeight = lineHeight
-        paragraph.maximumLineHeight = lineHeight
-        paragraph.lineSpacing = 0
-
-        return NSAttributedString(
-            string: title,
-            attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9.4, weight: .semibold),
-                .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: paragraph,
-                .baselineOffset: -0.5
-            ]
-        )
-    }
-}
-
 final class DashboardViewController: NSViewController {
     var onPeriodChange: ((StatisticsPeriod) -> Void)?
     var onRefresh: (() -> Void)?
@@ -296,6 +198,7 @@ final class DashboardViewController: NSViewController {
     private let rowStack = NSStackView()
     private let emptyState = Label(style: .body)
     private let scrollView = NSScrollView()
+    private var rowWidthConstraints: [NSLayoutConstraint] = []
 
     override func loadView() {
         view = NSView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 540)))
@@ -506,6 +409,8 @@ final class DashboardViewController: NSViewController {
     }
 
     private func rebuildRows(with items: [TrafficAppPresentation]) {
+        NSLayoutConstraint.deactivate(rowWidthConstraints)
+        rowWidthConstraints.removeAll()
         rowStack.removeAllArrangedSubviews()
 
         if items.isEmpty {
@@ -513,23 +418,27 @@ final class DashboardViewController: NSViewController {
             wrapper.translatesAutoresizingMaskIntoConstraints = false
             wrapper.addSubview(emptyState)
             emptyState.translatesAutoresizingMaskIntoConstraints = false
+            rowStack.addArrangedSubview(wrapper)
+
+            let widthConstraint = wrapper.widthAnchor.constraint(equalTo: rowStack.widthAnchor)
+            rowWidthConstraints.append(widthConstraint)
+
             NSLayoutConstraint.activate([
-                wrapper.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -12),
+                widthConstraint,
                 wrapper.heightAnchor.constraint(equalToConstant: 150),
                 emptyState.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 18),
                 emptyState.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -18),
                 emptyState.centerYAnchor.constraint(equalTo: wrapper.centerYAnchor)
             ])
-            rowStack.addArrangedSubview(wrapper)
             return
         }
 
         for item in items {
             let row = AppTrafficRowView(item: item, icon: iconProvider.icon(for: item.appName))
             rowStack.addArrangedSubview(row)
-            NSLayoutConstraint.activate([
-                row.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -12)
-            ])
+            let widthConstraint = row.widthAnchor.constraint(equalTo: rowStack.widthAnchor)
+            rowWidthConstraints.append(widthConstraint)
+            widthConstraint.isActive = true
         }
     }
 
@@ -1097,7 +1006,7 @@ final class MonitorModel {
             return "..."
         }
 
-        return TrafficPresentation.statusBarRateLabel(
+        return TrafficPresentation.inlineStatusBarRateLabel(
             downloadBytesPerSecond: lastDownloadBytesPerSecond,
             uploadBytesPerSecond: lastUploadBytesPerSecond
         )
@@ -1194,8 +1103,16 @@ private extension NSStackView {
     func removeAllArrangedSubviews() {
         for subview in arrangedSubviews {
             removeArrangedSubview(subview)
+            subview.deactivateConstraintsRecursively()
             subview.removeFromSuperview()
         }
+    }
+}
+
+private extension NSView {
+    func deactivateConstraintsRecursively() {
+        NSLayoutConstraint.deactivate(constraints)
+        subviews.forEach { $0.deactivateConstraintsRecursively() }
     }
 }
 
