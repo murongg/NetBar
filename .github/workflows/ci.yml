@@ -35,3 +35,6 @@ jobs:
 
       - name: Build release
         run: swift build -c release
+
+      - name: Package release artifacts
+        run: scripts/package-release.sh --skip-build

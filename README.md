@@ -17,6 +17,8 @@ NetBar is a lightweight macOS menu bar traffic monitor for seeing which apps are
 - Time range switching for Hour, Today, Week, and Month statistics.
 - Traffic route breakdown for Proxy, Direct, Local, and Unknown usage.
 - Best-effort proxy detection based on the current system HTTP, HTTPS, and SOCKS proxy ports.
+- Current app version shown inside the popover.
+- One-click update checks against GitHub Releases, with a shortcut to open the release page.
 - Daily sharded traffic history for fast startup even after long-term use.
 - Automatic retention cleanup for older traffic shards.
 - Permission-friendly sampling through macOS `nettop`, with no Network Extension or System Extension required.

@@ -46,49 +46,31 @@ jobs:
       - name: Run tests
         run: swift test
 
-      - name: Build release
-        run: swift build -c release
-
-      - name: Package release asset
+      - name: Package release assets
         id: package
         run: |
           set -euo pipefail
+          scripts/package-release.sh
           arch="$(uname -m)"
           asset_name="NetBar-macos-${arch}"
-          dist_dir="dist"
-          package_dir="${dist_dir}/${asset_name}"
-
-          rm -rf "${dist_dir}"
-          mkdir -p "${package_dir}"
-          cp ".build/release/NetBar" "${package_dir}/"
-          cp "README.md" "${package_dir}/"
-          chmod +x "${package_dir}/NetBar"
-
-          cat > "${package_dir}/INSTALL.txt" <<'EOF'
-          Run from Terminal:
-
-              ./NetBar
-
-          NetBar is a menu bar app. The first sample establishes a baseline, and traffic deltas appear after the next sample.
-          EOF
-
-          tar -czf "${dist_dir}/${asset_name}.tar.gz" -C "${dist_dir}" "${asset_name}"
-          (cd "${dist_dir}" && shasum -a 256 "${asset_name}.tar.gz" > "${asset_name}.tar.gz.sha256")
-
-          echo "asset=${dist_dir}/${asset_name}.tar.gz" >> "$GITHUB_OUTPUT"
-          echo "checksum=${dist_dir}/${asset_name}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+          echo "tarball=dist/${asset_name}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "tarball_checksum=dist/${asset_name}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+          echo "dmg=dist/${asset_name}.dmg" >> "$GITHUB_OUTPUT"
+          echo "dmg_checksum=dist/${asset_name}.dmg.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSET: ${{ steps.package.outputs.asset }}
-          CHECKSUM: ${{ steps.package.outputs.checksum }}
+          TARBALL: ${{ steps.package.outputs.tarball }}
+          TARBALL_CHECKSUM: ${{ steps.package.outputs.tarball_checksum }}
+          DMG: ${{ steps.package.outputs.dmg }}
+          DMG_CHECKSUM: ${{ steps.package.outputs.dmg_checksum }}
         run: |
           set -euo pipefail
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${ASSET}" "${CHECKSUM}" --clobber
+            gh release upload "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" --clobber
           else
-            gh release create "${RELEASE_TAG}" "${ASSET}" "${CHECKSUM}" \
+            gh release create "${RELEASE_TAG}" "${TARBALL}" "${TARBALL_CHECKSUM}" "${DMG}" "${DMG_CHECKSUM}" \
               --title "${RELEASE_TAG}" \
               --generate-notes \
               --verify-tag

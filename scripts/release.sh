@@ -12,7 +12,7 @@ GitHub Actions run that builds and publishes the GitHub Release.
 Options:
   --dry-run           Print the commands without changing git or GitHub.
   --skip-tests        Do not run swift test before tagging.
-  --skip-build        Do not run swift build -c release before tagging.
+  --skip-build        Do not build/package release artifacts before tagging.
   --skip-clean-check  Allow releasing from a dirty working tree.
   --no-open           Do not open the GitHub Actions run in the browser.
   -h, --help          Show this help.
@@ -101,6 +101,11 @@ command -v swift >/dev/null || die "swift is required"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "${REPO_ROOT}"
 
+APP_VERSION="$(sed -nE 's/.*static let current = AppVersion\("([^"]+)"\)!.*/\1/p' Sources/NetBarCore/AppUpdate.swift | head -n 1)"
+[[ -n "${APP_VERSION}" ]] || die "could not read AppVersion.current from Sources/NetBarCore/AppUpdate.swift"
+APP_TAG="v${APP_VERSION#v}"
+[[ "${APP_TAG}" == "${TAG}" ]] || die "release tag ${TAG} does not match AppVersion.current ${APP_TAG}; update Sources/NetBarCore/AppUpdate.swift first"
+
 if [[ "${DRY_RUN}" != "1" ]]; then
   git remote get-url origin >/dev/null 2>&1 || die "git remote 'origin' is required"
 fi
@@ -121,7 +126,7 @@ else
   fi
 
   if [[ "${SKIP_BUILD}" != "1" ]]; then
-    run swift build -c release
+    run scripts/package-release.sh
   fi
 
   run git tag -a "${TAG}" -m "Release ${TAG}"
