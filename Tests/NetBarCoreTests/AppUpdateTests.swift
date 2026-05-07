@@ -5,8 +5,8 @@ final class AppUpdateTests: XCTestCase {
     func testCurrentVersionHasDisplayAndTagStrings() throws {
         let version = AppVersion.current
 
-        XCTAssertEqual(version.displayString, "0.1.2")
-        XCTAssertEqual(version.tagString, "v0.1.2")
+        XCTAssertEqual(version.displayString, "0.1.3")
+        XCTAssertEqual(version.tagString, "v0.1.3")
     }
 
     func testComparesSemanticVersionsFromTags() throws {

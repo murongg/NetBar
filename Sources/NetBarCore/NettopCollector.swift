@@ -37,17 +37,34 @@ public struct ProcessCommandRunner: CommandRunning {
         process.standardError = errorPipe
 
         try process.run()
+
+        let readerGroup = DispatchGroup()
+        let readerQueue = DispatchQueue.global(qos: .utility)
+        var output = Data()
+        var error = Data()
+
+        readerGroup.enter()
+        readerQueue.async {
+            output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            readerGroup.leave()
+        }
+
+        readerGroup.enter()
+        readerQueue.async {
+            error = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            readerGroup.leave()
+        }
+
         if didExit.wait(timeout: .now() + .milliseconds(Int(timeout * 1_000))) == .timedOut {
             process.terminate()
             if didExit.wait(timeout: .now() + .seconds(1)) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
                 didExit.wait()
             }
+            readerGroup.wait()
             throw CommandRunnerError.timedOut
         }
-
-        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let error = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        readerGroup.wait()
 
         guard process.terminationStatus == 0 else {
             let message = String(data: error, encoding: .utf8) ?? ""

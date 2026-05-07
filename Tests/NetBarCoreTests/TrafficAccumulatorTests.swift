@@ -35,12 +35,56 @@ final class TrafficAccumulatorTests: XCTestCase {
         XCTAssertEqual(nextDeltas.single?.bytesOut, 15)
     }
 
+    func testFallsBackToProcessDeltasWhenConnectionKeyChanges() throws {
+        let proxySettings = ProxySettings(ports: [])
+        let parser = NettopCSVParser()
+        var accumulator = TrafficAccumulator()
+
+        _ = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 1_000, processOut: 2_000, localPort: 50100), timestamp: Date(timeIntervalSince1970: 0)), proxySettings: proxySettings)
+        let deltas = accumulator.ingest(try parser.parse(Self.processSample(pid: 42, processIn: 1_400, processOut: 2_600, localPort: 60200), timestamp: Date(timeIntervalSince1970: 5)), proxySettings: proxySettings)
+
+        XCTAssertEqual(deltas.count, 1)
+        XCTAssertEqual(deltas.single?.appName, "Safari")
+        XCTAssertEqual(deltas.single?.route, .direct)
+        XCTAssertEqual(deltas.single?.bytesIn, 400)
+        XCTAssertEqual(deltas.single?.bytesOut, 600)
+    }
+
+    func testFallsBackToUnknownProcessDeltaWithoutConnections() throws {
+        let proxySettings = ProxySettings(ports: [])
+        let parser = NettopCSVParser()
+        var accumulator = TrafficAccumulator()
+
+        _ = accumulator.ingest(try parser.parse(Self.processOnlySample(processIn: 5_000, processOut: 6_000), timestamp: Date(timeIntervalSince1970: 0)), proxySettings: proxySettings)
+        let deltas = accumulator.ingest(try parser.parse(Self.processOnlySample(processIn: 5_300, processOut: 6_700), timestamp: Date(timeIntervalSince1970: 5)), proxySettings: proxySettings)
+
+        XCTAssertEqual(deltas.count, 1)
+        XCTAssertEqual(deltas.single?.route, .unknown)
+        XCTAssertEqual(deltas.single?.bytesIn, 300)
+        XCTAssertEqual(deltas.single?.bytesOut, 700)
+    }
+
     private static func sample(proxyIn: UInt64, proxyOut: UInt64, directIn: UInt64, directOut: UInt64) -> String {
         """
         time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
         12:00:00.100000,Safari.42,,,0,0,0,0,0,,,,,,,,,,,,
         12:00:00.100001,tcp4 127.0.0.1:50100<->127.0.0.1:7890,lo0,Established,\(proxyIn),\(proxyOut),0,0,0,1.00 ms,131072,131072,BE,-,cubic,-,-,-,-,so,
         12:00:00.100002,tcp4 192.168.1.2:50101<->93.184.216.34:443,en0,Established,\(directIn),\(directOut),0,0,0,20.00 ms,131072,131072,BE,-,cubic,-,-,-,-,so,
+        """
+    }
+
+    private static func processSample(pid: Int, processIn: UInt64, processOut: UInt64, localPort: Int) -> String {
+        """
+        time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
+        12:00:00.100000,Safari.\(pid),,,\(processIn),\(processOut),0,0,0,,,,,,,,,,,,
+        12:00:00.100001,tcp4 192.168.1.2:\(localPort)<->93.184.216.34:443,en0,Established,\(processIn),\(processOut),0,0,0,20.00 ms,131072,131072,BE,-,cubic,-,-,-,-,so,
+        """
+    }
+
+    private static func processOnlySample(processIn: UInt64, processOut: UInt64) -> String {
+        """
+        time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
+        12:00:00.100000,Safari.42,,,\(processIn),\(processOut),0,0,0,,,,,,,,,,,,
         """
     }
 }
