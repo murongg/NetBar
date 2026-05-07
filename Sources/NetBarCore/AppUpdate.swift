@@ -1,7 +1,9 @@
 import Foundation
 
 public struct AppVersion: Hashable, Comparable, Sendable {
-    public static let current = AppVersion("0.1.9")!
+    public static var current: AppVersion {
+        AppVersionResolver.current()
+    }
 
     public let rawValue: String
 
@@ -103,6 +105,61 @@ public struct AppVersion: Hashable, Comparable, Sendable {
         }
 
         return .orderedSame
+    }
+}
+
+enum AppVersionResolver {
+    static func current(bundle: Bundle = .main, fileManager: FileManager = .default) -> AppVersion {
+        guard let version = resolve(
+            bundleVersion: bundleInfoVersion(bundle),
+            versionFileText: versionFileText(fileManager: fileManager)
+        ) else {
+            fatalError("Missing valid NetBar version. Set CFBundleShortVersionString or VERSION.")
+        }
+
+        return version
+    }
+
+    static func resolve(bundleVersion: String?, versionFileText: String?) -> AppVersion? {
+        [bundleVersion, versionFileText]
+            .compactMap { $0 }
+            .lazy
+            .compactMap(AppVersion.init)
+            .first
+    }
+
+    private static func bundleInfoVersion(_ bundle: Bundle) -> String? {
+        guard bundle.bundleIdentifier == "com.murongg.NetBar" else {
+            return nil
+        }
+
+        return bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    private static func versionFileText(fileManager: FileManager) -> String? {
+        guard let url = versionFileURL(fileManager: fileManager) else {
+            return nil
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func versionFileURL(fileManager: FileManager) -> URL? {
+        var directory = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+
+        for _ in 0..<10 {
+            let candidate = directory.appendingPathComponent("VERSION", isDirectory: false)
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+
+            let parent = directory.deletingLastPathComponent()
+            if parent.path == directory.path {
+                break
+            }
+            directory = parent
+        }
+
+        return nil
     }
 }
 

@@ -58,7 +58,7 @@ jobs:
           fi
           arch="$(uname -m)"
           asset_name="NetBar-macos-${arch}"
-          scripts/package-release.sh \
+          NETBAR_VERSION="${RELEASE_TAG#v}" scripts/package-release.sh \
             --appcast-download-url-prefix "https://github.com/murongg/NetBar/releases/download/${RELEASE_TAG}/"
           echo "tarball=dist/${asset_name}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "tarball_checksum=dist/${asset_name}.tar.gz.sha256" >> "$GITHUB_OUTPUT"

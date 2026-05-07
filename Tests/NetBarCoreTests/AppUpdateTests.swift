@@ -2,11 +2,31 @@ import XCTest
 @testable import NetBarCore
 
 final class AppUpdateTests: XCTestCase {
-    func testCurrentVersionHasDisplayAndTagStrings() throws {
+    func testCurrentVersionUsesRepositoryVersionFallback() throws {
+        let versionText = try String(contentsOf: URL(fileURLWithPath: "VERSION"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let version = AppVersion.current
 
+        XCTAssertEqual(version.displayString, versionText)
+        XCTAssertEqual(version.tagString, "v\(versionText)")
+    }
+
+    func testCurrentVersionResolverPrefersBundleInfo() throws {
+        let version = try XCTUnwrap(AppVersionResolver.resolve(
+            bundleVersion: "1.2.3",
+            versionFileText: "0.1.9"
+        ))
+
+        XCTAssertEqual(version.displayString, "1.2.3")
+    }
+
+    func testCurrentVersionResolverFallsBackToVersionFile() throws {
+        let version = try XCTUnwrap(AppVersionResolver.resolve(
+            bundleVersion: nil,
+            versionFileText: "0.1.9\n"
+        ))
+
         XCTAssertEqual(version.displayString, "0.1.9")
-        XCTAssertEqual(version.tagString, "v0.1.9")
     }
 
     func testComparesSemanticVersionsFromTags() throws {

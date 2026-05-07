@@ -7,6 +7,7 @@ Usage:
   scripts/package-release.sh [options]
 
 Builds NetBar.app and packages release artifacts into dist/.
+The app version comes from NETBAR_VERSION when set, otherwise from VERSION.
 
 Options:
   --skip-build          Reuse the existing .build/release/NetBar executable.
@@ -84,8 +85,12 @@ ICON_SOURCE_PATH="Resources/NetBarIcon.png"
 BUILD_PRODUCTS_DIR="$(dirname "${EXECUTABLE_PATH}")"
 SPARKLE_FRAMEWORK_PATH="${BUILD_PRODUCTS_DIR}/Sparkle.framework"
 SPARKLE_BIN_DIR=".build/artifacts/sparkle/Sparkle/bin"
-VERSION="$(sed -nE 's/.*static let current = AppVersion\("([^"]+)"\)!.*/\1/p' Sources/NetBarCore/AppUpdate.swift | head -n 1)"
-[[ -n "${VERSION}" ]] || die "could not read AppVersion.current from Sources/NetBarCore/AppUpdate.swift"
+VERSION="${NETBAR_VERSION:-}"
+if [[ -z "${VERSION}" && -f VERSION ]]; then
+  VERSION="$(tr -d '[:space:]' < VERSION)"
+fi
+[[ -n "${VERSION}" ]] || die "missing version; set NETBAR_VERSION or create VERSION"
+[[ "${VERSION}" =~ ^[0-9]+(\.[0-9]+){1,2}([-+][0-9A-Za-z.-]+)?$ ]] || die "version must look like 0.1.0"
 
 if [[ "${SKIP_BUILD}" != "1" ]]; then
   swift build -c release

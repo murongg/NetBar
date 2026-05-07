@@ -8,6 +8,7 @@ Usage:
 
 Creates or verifies a release tag, pushes it, and optionally opens the
 GitHub Actions run that builds and publishes the GitHub Release.
+The packaged app version is derived from the release tag.
 
 Options:
   --dry-run           Print the commands without changing git or GitHub.
@@ -101,10 +102,7 @@ command -v swift >/dev/null || die "swift is required"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "${REPO_ROOT}"
 
-APP_VERSION="$(sed -nE 's/.*static let current = AppVersion\("([^"]+)"\)!.*/\1/p' Sources/NetBarCore/AppUpdate.swift | head -n 1)"
-[[ -n "${APP_VERSION}" ]] || die "could not read AppVersion.current from Sources/NetBarCore/AppUpdate.swift"
-APP_TAG="v${APP_VERSION#v}"
-[[ "${APP_TAG}" == "${TAG}" ]] || die "release tag ${TAG} does not match AppVersion.current ${APP_TAG}; update Sources/NetBarCore/AppUpdate.swift first"
+APP_VERSION="${TAG#v}"
 
 if [[ "${DRY_RUN}" != "1" ]]; then
   git remote get-url origin >/dev/null 2>&1 || die "git remote 'origin' is required"
@@ -126,7 +124,7 @@ else
   fi
 
   if [[ "${SKIP_BUILD}" != "1" ]]; then
-    run scripts/package-release.sh
+    run env NETBAR_VERSION="${APP_VERSION}" scripts/package-release.sh
   fi
 
   run git tag -a "${TAG}" -m "Release ${TAG}"
