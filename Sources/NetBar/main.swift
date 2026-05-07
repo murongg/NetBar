@@ -73,12 +73,6 @@ final class MenuBarController: NSObject {
         button.action = #selector(togglePopover(_:))
         button.toolTip = "NetBar \(AppVersion.current.tagString)"
 
-        statusRateView.onClick = { [weak self, weak button] in
-            guard let button else {
-                return
-            }
-            self?.togglePopover(button)
-        }
         statusRateView.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(statusRateView)
 
@@ -199,7 +193,6 @@ final class StatusRateView: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let layout = TrafficPresentation.statusBarRateLayout
-    var onClick: (() -> Void)?
 
     var title: String {
         get { titleLabel.stringValue }
@@ -226,12 +219,8 @@ final class StatusRateView: NSView {
         )
     }
 
-    override func mouseDown(with event: NSEvent) {
-        onClick?()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onClick?()
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
     private func setup() {
